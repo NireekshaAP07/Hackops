@@ -3,6 +3,7 @@ import axios from 'axios';
 import { io } from 'socket.io-client';
 
 const API = (path) => `${import.meta.env.VITE_API_BASE || 'http://localhost:4000'}${path}`;
+
 const socket = io(import.meta.env.VITE_API_BASE || 'http://localhost:4000');
 
 function uid() {
@@ -21,16 +22,15 @@ export default function Scheduler(){
   async function loadGroups(){
     const res = await axios.get(API('/api/groups'));
     setGroups(res.data);
-    if (selected) {
-      const fresh = res.data.find(g => g.id === selected.id);
-      if (fresh) setSelected(fresh);
-    }
   }
 
   useEffect(() => {
     loadGroups();
-    socket.on('group:updated', loadGroups);
-    socket.on('groups:updated', loadGroups);
+    socket.on('group:updated', ({groupId}) => {
+      // reload changed group (simple approach)
+      loadGroups();
+    });
+    socket.on('groups:updated', () => loadGroups());
     return () => { socket.off('group:updated'); socket.off('groups:updated'); };
   }, []);
 
@@ -55,6 +55,10 @@ export default function Scheduler(){
     loadGroups();
   }
 
+  function selectGroup(g){
+    setSelected(g);
+  }
+
   return (
     <div style={{display:'flex', gap:20}}>
       <div style={{width:300}}>
@@ -63,10 +67,11 @@ export default function Scheduler(){
           <input placeholder="Group name" value={name} onChange={e=>setName(e.target.value)} />
           <button type="submit">Create</button>
         </form>
+
         <ul>
           {groups.map(g=>(
             <li key={g.id} style={{marginTop:10}}>
-              <button onClick={()=>setSelected(g)} style={{fontWeight: selected?.id===g.id ? 'bold': 'normal'}}>
+              <button onClick={()=>selectGroup(g)} style={{fontWeight: selected?.id===g.id ? 'bold': 'normal'}}>
                 {g.name} ({g.times.length})
               </button>
             </li>
@@ -79,7 +84,7 @@ export default function Scheduler(){
           <>
             <h2>{selected.name}</h2>
             <form onSubmit={propose}>
-              <input placeholder="Propose time" value={timeInput} onChange={e=>setTimeInput(e.target.value)} />
+              <input placeholder="Propose time (e.g. 2025-09-20 19:00)" value={timeInput} onChange={e=>setTimeInput(e.target.value)} />
               <button type="submit">Propose</button>
             </form>
 
@@ -93,11 +98,38 @@ export default function Scheduler(){
                 </li>
               ))}
             </ul>
+
+            <h3>Top suggestions</h3>
+            <TopSuggestions groupId={selected.id} />
           </>
         ) : (
           <div>Select a group to manage</div>
         )}
       </div>
     </div>
+  );
+}
+
+function TopSuggestions({ groupId }) {
+  const [best, setBest] = useState([]);
+  useEffect(()=> {
+    let cancelled = false;
+    async function load() {
+      if (!groupId) return setBest([]);
+      const r = await fetch(`${API('')}/api/groups/${groupId}/best`);
+      const j = await r.json();
+      if (!cancelled) setBest(j);
+    }
+    load();
+    const handler = () => load();
+    socket.on('group:updated', handler);
+    return () => { cancelled = true; socket.off('group:updated', handler); };
+  }, [groupId]);
+
+  if (!best.length) return <div>No suggestions yet</div>;
+  return (
+    <ol>
+      {best.map(b => <li key={b.id}>{b.time} — {b.votes} votes</li>)}
+    </ol>
   );
 }
