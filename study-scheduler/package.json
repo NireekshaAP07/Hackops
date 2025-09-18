@@ -1,0 +1,12 @@
+{
+  "name": "study-scheduler",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "concurrently \"node server/index.js\" \"cd client && npm run dev\"",
+    "start": "node server/index.js"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
